@@ -22,8 +22,6 @@ const money = amount => currency.format(amount);
 const get = selector => document.querySelector(selector);
 
 const products = get("#products");
-const productDialog = get("#product-dialog");
-const bagDialog = get("#bag-dialog");
 const bagButton = get("#open-bag");
 const searchPanel = get("#search-panel");
 const searchToggle = get("#search-toggle");
@@ -36,9 +34,7 @@ const maxQuantity = 9;
 
 let selectedShape = "All";
 let query = "";
-let configuredFrame = null;
-let bagStage = "bag";
-let lastOrder = null;
+const comparison = new Set();
 let bag = restoreBag();
 
 function restoreBag() {
@@ -91,48 +87,15 @@ function renderFrames() {
 
   products.innerHTML = matches.map(frame => `
     <article class="card">
-      <button class="card-trigger" type="button" data-frame="${frame.id}" aria-label="Configure ${frame.name} in ${frame.color}">
+      <a class="card-trigger" href="#frame/${frame.id}" aria-label="View ${frame.name} in ${frame.color}">
         <img src="assets/${frame.id}.jpg" width="512" height="512" alt="" loading="lazy">
         <span class="card-arrow" aria-hidden="true">↗</span>
-      </button>
+      </a>
       <div class="card-title"><h3>${frame.name}</h3><p>${money(frame.price)}</p></div>
-      <p class="card-meta"><span class="swatch" style="--swatch:${frame.swatch}"></span>${frame.color} · ${frame.fit}</p>
+      <p class="card-meta"><span class="swatch" style="--swatch:${frame.swatch}"></span>${frame.color} · ${frame.fit} fit</p>
+      <button class="compare-toggle" type="button" data-compare="${frame.id}" aria-pressed="${comparison.has(frame.id)}" aria-label="Compare ${frame.name}">Compare</button>
     </article>
   `).join("");
-}
-
-function openFrame(frame) {
-  configuredFrame = frame;
-  productDialog.innerHTML = `
-    <div class="product-sheet">
-      <div class="product-photo"><img src="assets/${frame.id}.jpg" alt="${frame.name} eyeglasses in ${frame.color}"></div>
-      <div class="product-content">
-        <button type="button" data-close class="close" aria-label="Close frame details">×</button>
-        <p class="eyebrow">${frame.shape} · ${frame.fit} fit</p>
-        <h2 id="product-title" class="dialog-title">${frame.name} in ${frame.color}</h2>
-        <p>${frame.description}</p>
-        <p class="hint" title="Lens width, bridge width, temple length">Frame measurements · ${frame.dimensions} mm</p>
-        <form class="config">
-          <label>Lens type
-            <select name="lens">
-              <option value="single">Single vision · Included</option>
-              <option value="progressive">Progressive · +${money(lenses.progressive.extra)}</option>
-            </select>
-          </label>
-          <label>Prescription
-            <select name="prescription">
-              <option value="later">${prescriptionChoices.later}</option>
-              <option value="sample">${prescriptionChoices.sample}</option>
-            </select>
-          </label>
-          <p class="hint" data-rx-hint>In a live store, you’d receive secure instructions after checkout.</p>
-          <button class="button" type="submit">Add to bag <span data-config-price>${money(frame.price)}</span></button>
-          <p class="hint" role="status" data-config-status hidden></p>
-        </form>
-      </div>
-    </div>
-  `;
-  productDialog.showModal();
 }
 
 function pricePerPair(item) {
@@ -141,76 +104,6 @@ function pricePerPair(item) {
 
 function subtotal() {
   return bag.reduce((sum, item) => sum + pricePerPair(item) * item.quantity, 0);
-}
-
-function bagLine(item, index) {
-  const frame = frames.find(entry => entry.id === item.frameId);
-  return `
-    <article class="bag-item">
-      <img src="assets/${frame.id}.jpg" alt="">
-      <div>
-        <div class="bag-item-title"><h3>${frame.name} in ${frame.color}</h3><strong>${money(pricePerPair(item) * item.quantity)}</strong></div>
-        <p class="hint">${lenses[item.lens].label} · ${prescriptionChoices[item.prescription]}</p>
-        <div class="quantity">
-          <button type="button" data-action="less" data-index="${index}" aria-label="Decrease ${frame.name} quantity" ${item.quantity === 1 ? "disabled" : ""}>−</button>
-          <span aria-label="Quantity ${item.quantity}">${item.quantity}</span>
-          <button type="button" data-action="more" data-index="${index}" aria-label="Increase ${frame.name} quantity" ${item.quantity === maxQuantity ? "disabled" : ""}>+</button>
-          <button type="button" class="text-link" data-action="remove" data-index="${index}" aria-label="Remove ${frame.name} from bag">Remove</button>
-        </div>
-      </div>
-    </article>
-  `;
-}
-
-function renderBag() {
-  const title = { bag: "Your bag", checkout: "Review sample order", complete: "Sample order complete" }[bagStage];
-  let content;
-  let actions = "";
-
-  if (bagStage === "complete") {
-    content = `
-      <p>You’ve finished the preview checkout. No payment was collected and no order will ship.</p>
-      <div class="order-summary"><p>${lastOrder.count} ${lastOrder.count === 1 ? "pair" : "pairs"} · ${money(lastOrder.total)} CAD</p></div>
-      <button class="button" type="button" data-close>Keep browsing</button>
-    `;
-  } else if (bagStage === "checkout") {
-    content = `
-      <p>This checkout simulates a purchase. It does not collect personal information or payment.</p>
-      <div class="order-summary">${bag.map(item => {
-        const frame = frames.find(entry => entry.id === item.frameId);
-        return `<p>${item.quantity} × ${frame.name} in ${frame.color}<br><span class="hint">${lenses[item.lens].label} · ${prescriptionChoices[item.prescription]}</span></p>`;
-      }).join("")}</div>
-      <button class="text-link" type="button" data-action="back">Back to bag</button>
-    `;
-    actions = `
-      <p class="total"><strong>Sample subtotal</strong><strong>${money(subtotal())} CAD</strong></p>
-      <p class="hint">Shipping and taxes are outside this simulation.</p>
-      <button type="button" class="button" data-action="complete">Place sample order</button>
-    `;
-  } else if (bag.length) {
-    content = bag.map(bagLine).join("");
-    actions = `
-      <p class="total"><strong>Subtotal</strong><strong>${money(subtotal())} CAD</strong></p>
-      <p class="hint">This is a store preview. No payment is collected.</p>
-      <button type="button" class="button" data-action="checkout">Try checkout <span aria-hidden="true">↗</span></button>
-    `;
-  } else {
-    content = '<p>Your bag is empty.</p><button class="button" type="button" data-close>Keep browsing</button>';
-  }
-
-  bagDialog.innerHTML = `
-    <div class="drawer-inner">
-      <div class="drawer-header"><h2 id="bag-title" class="dialog-title" tabindex="-1">${title}</h2><button class="close" type="button" data-close aria-label="Close bag">×</button></div>
-      <div class="drawer-main">${content}</div>
-      ${actions ? `<div class="drawer-bottom">${actions}</div>` : ""}
-    </div>
-  `;
-}
-
-function openBag() {
-  bagStage = "bag";
-  renderBag();
-  bagDialog.showModal();
 }
 
 filters.addEventListener("click", event => {
@@ -234,7 +127,10 @@ searchPanel.addEventListener("submit", event => {
   selectedShape = "All";
   filters.querySelectorAll("button").forEach(filter => filter.setAttribute("aria-pressed", String(filter.dataset.shape === "All")));
   renderFrames();
-  get("#shop").scrollIntoView();
+  searchPanel.hidden = true;
+  searchToggle.setAttribute("aria-expanded", "false");
+  if (location.hash === "#shop") get("#shop").scrollIntoView();
+  else location.hash = "shop";
 });
 
 clearSearch.addEventListener("click", () => {
@@ -243,72 +139,6 @@ clearSearch.addEventListener("click", () => {
   renderFrames();
   filters.querySelector('[aria-pressed="true"]').focus();
 });
-
-products.addEventListener("click", event => {
-  const trigger = event.target.closest("[data-frame]");
-  if (trigger) openFrame(frames.find(frame => frame.id === trigger.dataset.frame));
-});
-
-productDialog.addEventListener("change", event => {
-  const form = event.target.form;
-  if (!form) return;
-  const lens = form.elements.lens.value;
-  get("[data-config-price]").textContent = money(configuredFrame.price + lenses[lens].extra);
-  get("[data-rx-hint]").textContent = form.elements.prescription.value === "sample"
-    ? "A sample prescription choice will be saved with this pair. No file is needed."
-    : "In a live store, you’d receive secure instructions after checkout.";
-  get("[data-config-status]").hidden = true;
-});
-
-productDialog.addEventListener("submit", event => {
-  event.preventDefault();
-  const data = new FormData(event.target);
-  const entry = { frameId: configuredFrame.id, lens: data.get("lens"), prescription: data.get("prescription"), quantity: 1 };
-  const existing = bag.find(item => item.frameId === entry.frameId && item.lens === entry.lens && item.prescription === entry.prescription);
-
-  if (existing?.quantity === maxQuantity) {
-    const status = get("[data-config-status]");
-    status.textContent = `This configuration already has ${maxQuantity} pairs in your bag.`;
-    status.hidden = false;
-    return;
-  }
-
-  if (existing) existing.quantity++;
-  else bag.push(entry);
-  persistBag();
-  productDialog.close();
-  openBag();
-});
-
-bagButton.addEventListener("click", openBag);
-bagDialog.addEventListener("click", event => {
-  const button = event.target.closest("[data-action]");
-  if (!button) return;
-  const { action, index } = button.dataset;
-  const item = bag[index];
-
-  if (action === "more" && item && item.quantity < maxQuantity) item.quantity++;
-  if (action === "less" && item && item.quantity > 1) item.quantity--;
-  if (action === "remove" && item) bag.splice(Number(index), 1);
-  if (action === "checkout" && bag.length) bagStage = "checkout";
-  if (action === "back") bagStage = "bag";
-  if (action === "complete" && bagStage === "checkout" && bag.length) {
-    lastOrder = { total: subtotal(), count: bag.reduce((sum, entry) => sum + entry.quantity, 0) };
-    bag = [];
-    bagStage = "complete";
-  }
-
-  persistBag();
-  renderBag();
-  const equivalentButton = index === undefined || action === "remove" ? null : bagDialog.querySelector(`[data-action="${action}"][data-index="${index}"]:not(:disabled)`);
-  (equivalentButton || get("#bag-title")).focus();
-});
-
-for (const dialog of [productDialog, bagDialog]) {
-  dialog.addEventListener("click", event => {
-    if (event.target.closest("[data-close]") || event.target === dialog) dialog.close();
-  });
-}
 
 updateBagCount();
 renderFrames();
