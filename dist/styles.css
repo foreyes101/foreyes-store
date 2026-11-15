@@ -61,10 +61,8 @@ h2 { font: 700 clamp(2.35rem, 4.7vw, 4.5rem)/1 var(--head); letter-spacing: -.05
 .products { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 16px; }
 .card { min-width: 0; }
 .card-trigger { display: block; position: relative; overflow: hidden; width: 100%; border: 0; padding: 0; background: #edeae2; }
-.card-trigger img { aspect-ratio: 1.24; object-fit: cover; transition: transform .25s ease; }
-.card-trigger:hover img { transform: scale(1.045); }
-.card-arrow { position: absolute; right: 12px; bottom: 12px; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--paper); }
-.card-trigger:hover .card-arrow { background: var(--lime); }
+.card-trigger img { height: auto; aspect-ratio: 16 / 9; object-fit: contain; }
+.card-trigger:hover { outline: 1px solid var(--ink); }
 .card-title { display: flex; justify-content: space-between; align-items: baseline; gap: 7px; margin-top: 9px; }
 .card-title h3 { font: 700 clamp(1.17rem, 2vw, 1.65rem)/1.1 var(--head); letter-spacing: -.045em; }
 .card-title p { font-size: .84rem; white-space: nowrap; font-weight: 700; }
@@ -108,7 +106,6 @@ footer p { color: var(--muted); }
   .filters button { padding-inline: 10px; }
   .products { gap: 22px 10px; }
   .card-title { flex-wrap: wrap; gap: 3px; }
-  .card-arrow { width: 28px; height: 28px; right: 7px; bottom: 7px; }
   .lens-guide { grid-template-columns: 1fr; }
   footer { flex-wrap: wrap; padding: 24px 16px; }
   .search-panel { flex-wrap: wrap; }

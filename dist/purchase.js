@@ -9,14 +9,17 @@ const lensDescriptions = {
   progressive: "Multiple viewing distances in one lens. Additional fitting measurements may be needed.",
 };
 const prescriptionDescriptions = {
+  manual: "Enter sphere power and any other measurements from an example glasses prescription.",
   later: "Preview the flow for sending your prescription securely after checkout.",
   sample: "Try the builder using example information.",
 };
 const cad = amount => money(amount) + " CAD";
 const findFrame = id => frames.find(frame => frame.id === id);
-const itemKey = item => [item.frameId, item.lens, item.prescription].join("/");
+const itemKey = item => [item.frameId, item.lens, item.prescription, item.rxId].filter(Boolean).join("/");
 const measurements = ["Lens width", "Bridge width", "Temple length"];
 let draft = readSession("foreyes-preview-draft");
+let draftRx = {};
+const bagPrescriptions = new Map();
 let lastOrder = readSession("foreyes-preview-order");
 
 function readSession(key) {
@@ -44,7 +47,7 @@ function backLink(route, title) {
 }
 
 function frameImage(frame, alt = "") {
-  return `<img src="assets/${frame.id}.jpg" width="512" height="512" alt="${alt}">`;
+  return `<img src="assets/${frame.id}.jpg" width="512" height="288" alt="${alt}">`;
 }
 
 function measurementList(frame) {
@@ -82,6 +85,7 @@ function initDraft(frame, editKey, original) {
     lens: original?.lens || "single",
     prescription: original?.prescription || "later",
   };
+  draftRx = { ...bagPrescriptions.get(original?.rxId) };
   saveSession("foreyes-preview-draft", draft);
 }
 
@@ -117,15 +121,16 @@ function builderPage(frame, step, editKey, original) {
   const previousLabel = index ? stageLabels[index - 1] : editKey ? "Back to bag" : "Back to " + frame.name;
   const options = [
     `<fieldset><legend class="sr-only">Lens type</legend>${choiceCards("lens", lenses, lensDescriptions)}</fieldset>`,
-    `<fieldset><legend class="sr-only">Prescription submission</legend>${choiceCards("prescription", prescriptionChoices, prescriptionDescriptions)}</fieldset>`,
+    `<fieldset><legend class="sr-only">Prescription submission</legend>${choiceCards("prescription", prescriptionChoices, prescriptionDescriptions)}</fieldset>
+      ${prescriptionForm(draft.prescription === "manual")}`,
     `<dl class="review-options">
        <div><dt>Lens type</dt><dd>${lenses[draft.lens].label}</dd><dd><a class="text-link" href="${stepLink(frame, "lenses", editKey)}" aria-label="Edit lens type">Edit</a></dd></div>
        <div><dt>Prescription</dt><dd>${prescriptionChoices[draft.prescription]}</dd><dd><a class="text-link" href="${stepLink(frame, "prescription", editKey)}" aria-label="Edit prescription choice">Edit</a></dd></div>
-     </dl>`,
+     </dl>${step === "review" && draft.prescription === "manual" ? prescriptionReadback(validatePrescription(draftRx, draft.lens).data) : ""}`,
   ][index];
   const lead = [
     "Choose the type that matches your prescription.",
-    "Choose a sample option for this store preview.",
+    "Enter an example prescription now, use a sample, or choose to provide it later.",
     "Check your lens and prescription choices before saving this pair.",
   ][index];
   const continueLabel = ["Continue to prescription", "Review my glasses", editKey ? "Save changes" : "Add to bag"][index];
@@ -138,7 +143,7 @@ function builderPage(frame, step, editKey, original) {
       <section>
         <h1 id="page-title" tabindex="-1">${title}</h1>
         <p class="page-intro">${lead}</p>
-        <form id="builder-form" data-step="${step}">
+        <form id="builder-form" data-step="${step}" autocomplete="off" novalidate>
           ${options}
           <p id="builder-error" role="alert" class="form-error" hidden></p>
           <button class="button purchase-button" type="submit">${continueLabel} <span aria-hidden="true">→</span></button>
@@ -151,21 +156,23 @@ function builderPage(frame, step, editKey, original) {
 
 function orderLine(item, index, editable) {
   const frame = findFrame(item.frameId);
-  const editKey = item.lens + "/" + item.prescription;
+  const editKey = itemKey(item).slice(frame.id.length + 1);
+  const rx = bagPrescriptions.get(item.rxId);
   return `<article class="order-line">
     <a class="order-thumb" href="#frame/${frame.id}" aria-label="View ${frame.name}">${frameImage(frame)}</a>
     <div>
       <div class="order-line-title"><h2>${frame.name} in ${frame.color}</h2><strong>${money(pricePerPair(item) * item.quantity)}</strong></div>
-      <p class="hint">${lenses[item.lens].label} · ${prescriptionChoices[item.prescription]}</p>
+      <p class="hint">${lenses[item.lens].label} · ${item.prescription === "manual" ? rx ? "Prescription entered" : "Prescription needs re-entry" : prescriptionChoices[item.prescription]}</p>
       ${editable ? `<div class="order-actions">
         <div class="quantity-picker" aria-label="Quantity">
           <button type="button" data-quantity="less" data-index="${index}" aria-label="Decrease ${frame.name} quantity" ${item.quantity === 1 ? "disabled" : ""}>−</button>
           <span>${item.quantity}</span>
           <button type="button" data-quantity="more" data-index="${index}" aria-label="Increase ${frame.name} quantity" ${item.quantity === maxQuantity ? "disabled" : ""}>+</button>
         </div>
-        <a href="${stepLink(frame, "lenses", editKey)}" class="text-link" data-edit aria-label="Edit ${frame.name} configuration">Edit</a>
+        <a href="${stepLink(frame, item.prescription === "manual" && !rx ? "prescription" : "lenses", editKey)}" class="text-link" data-edit aria-label="Edit ${frame.name} configuration">${item.prescription === "manual" && !rx ? "Re-enter prescription" : "Edit"}</a>
         <button type="button" class="text-link" data-quantity="remove" data-index="${index}" aria-label="Remove ${frame.name} from bag">Remove</button>
-      </div>` : `<p class="hint">Quantity ${item.quantity}</p>`}
+      </div>` : `<p class="hint">Quantity ${item.quantity}</p>
+        ${rx ? `<details class="checkout-rx"><summary>Review entered prescription</summary>${prescriptionReadback(rx)}</details>` : ""}`}
     </div>
   </article>`;
 }
@@ -180,7 +187,10 @@ function bagPage(checkout) {
 
   const count = bag.reduce((sum, item) => sum + item.quantity, 0);
   const status = checkout ? "Sample checkout · No charge" : count + (count === 1 ? " pair" : " pairs");
-  const actions = checkout
+  const missingRx = bag.some(item => item.prescription === "manual" && !bagPrescriptions.has(item.rxId));
+  const actions = missingRx
+    ? `<p class="hint">Re-enter the prescription for any marked pair before checkout. This preview clears entered values when you reload.</p>${checkout ? '<a class="button purchase-button" href="#bag">Back to bag</a>' : ""}`
+    : checkout
     ? `<button type="button" class="button purchase-button" id="place-order">Place sample order <span aria-hidden="true">→</span></button>`
     : `<a class="button purchase-button" href="#checkout">Continue to checkout <span aria-hidden="true">→</span></a>`;
   return `${previous}<div class="purchase-layout">
@@ -217,7 +227,7 @@ function confirmationPage() {
     <dl class="summary-rows">
       <div><dt>Pairs</dt><dd>${lastOrder.count}</dd></div>
       <div><dt>Sample subtotal</dt><dd>${cad(lastOrder.total)}</dd></div>
-      <div><dt>Prescription</dt><dd>${lastOrder.needsPrescription ? "Provide later (preview)" : "Sample selected"}</dd></div>
+      <div><dt>Prescription</dt><dd>${lastOrder.needsPrescription ? "Provide later (preview)" : lastOrder.enteredPrescription ? "Entered for preview" : "Sample selected"}</dd></div>
     </dl>
     ${lastOrder.needsPrescription ? `<p class="hint">In the live shop, this is where you’d get instructions to send your prescription securely.</p>` : ""}
     <a href="#shop" class="button purchase-button">Keep browsing <span aria-hidden="true">↗</span></a>
@@ -253,7 +263,7 @@ function comparisonToolbar(message = "") {
 
 function renderRoute(moveFocus = true) {
   const route = location.hash.slice(1);
-  const [screen, frameId, step, editLens, editRx, ...rest] = route.split("/");
+  const [screen, frameId, step, editLens, editRx, rxId, ...rest] = route.split("/");
   const frame = findFrame(frameId);
   let content = "";
 
@@ -263,12 +273,16 @@ function renderRoute(moveFocus = true) {
   if (route === "compare") content = comparisonPage();
 
   if (screen === "build" && frame && steps.includes(step) && !rest.length) {
-    const editKey = editLens && editRx ? editLens + "/" + editRx : "";
+    const editKey = editLens && editRx ? [editLens, editRx, rxId].filter(Boolean).join("/") : "";
     const original = editKey && bag.find(item => itemKey(item) === frame.id + "/" + editKey);
     if (editKey && !original) {
       content = `${backLink("#bag", "Back to bag")}<h1 id="page-title" tabindex="-1">This pair isn’t in your bag</h1>`;
     } else {
       initDraft(frame, editKey, original);
+      if (step === "review" && draft.prescription === "manual" && Object.keys(validatePrescription(draftRx, draft.lens).errors).length) {
+        location.replace(stepLink(frame, "prescription", editKey));
+        return;
+      }
       content = builderPage(frame, step, editKey, original);
     }
   }
@@ -276,6 +290,7 @@ function renderRoute(moveFocus = true) {
   storefront.hidden = Boolean(content);
   purchasePage.hidden = !content;
   purchasePage.innerHTML = content;
+  if (get("#manual-rx")) fillPrescriptionForm(draftRx);
   comparisonToolbar();
   const title = get("#page-title");
   document.title = title ? title.textContent + " — Foreyes" : "Foreyes — Prescription eyewear";
@@ -301,6 +316,15 @@ function editedPair() {
 function addOrUpdatePair() {
   const original = editedPair();
   const entry = { frameId: draft.frameId, lens: draft.lens, prescription: draft.prescription, quantity: original?.quantity || 1 };
+  if (draft.prescription === "manual") {
+    const { data, errors } = validatePrescription(draftRx, draft.lens);
+    if (Object.keys(errors).length) {
+      location.hash = stepLink(findFrame(draft.frameId), "prescription", draft.editKey);
+      return;
+    }
+    entry.rxId = original?.rxId || crypto.randomUUID();
+    bagPrescriptions.set(entry.rxId, data);
+  }
   const matching = bag.find(item => item !== original && itemKey(item) === itemKey(entry));
   if (matching && matching.quantity + entry.quantity > maxQuantity) {
     const error = get("#builder-error");
@@ -308,6 +332,7 @@ function addOrUpdatePair() {
     error.textContent = "You can add up to " + maxQuantity + " pairs with the same configuration. Adjust the quantity in your bag first.";
     return;
   }
+  if (original?.rxId && !entry.rxId) bagPrescriptions.delete(original.rxId);
   if (matching) {
     matching.quantity += entry.quantity;
     if (original) bag.splice(bag.indexOf(original), 1);
@@ -318,6 +343,7 @@ function addOrUpdatePair() {
   }
   persistBag();
   draft = null;
+  draftRx = {};
   saveSession("foreyes-preview-draft", draft);
   location.hash = "bag";
 }
@@ -328,14 +354,44 @@ purchasePage.addEventListener("submit", event => {
   event.preventDefault();
   if (!draft) return;
   const index = steps.indexOf(form.dataset.step);
+  if (form.dataset.step === "prescription" && draft.prescription === "manual") {
+    const { errors } = validatePrescription(draftRx, draft.lens);
+    const inputs = form.querySelectorAll("[data-rx-input]");
+    for (const input of inputs) {
+      input.setCustomValidity(errors[input.dataset.rxInput] || "");
+      if (errors[input.dataset.rxInput] && input.closest("details")) input.closest("details").open = true;
+    }
+    if (Object.keys(errors).length) {
+      form.reportValidity();
+      return;
+    }
+  }
   if (index === steps.length - 1) addOrUpdatePair();
   else location.hash = stepLink(findFrame(draft.frameId), steps[index + 1], draft.editKey);
 });
 
+purchasePage.addEventListener("input", event => {
+  const input = event.target;
+  const key = input.dataset.rxInput;
+  if (!key) return;
+  draftRx[key] = input.value;
+  input.setCustomValidity("");
+});
+
 purchasePage.addEventListener("change", event => {
-  if (event.target.form?.id !== "builder-form") return;
-  const { name, value } = event.target;
+  const { id, name, value, form } = event.target;
+  if (form?.id !== "builder-form") return;
+  if (id === "pd-mode") {
+    draftRx.pdMode = value;
+    updatePdFields(value);
+    return;
+  }
+  if (name !== "lens" && name !== "prescription") return;
   draft[name] = value;
+  if (name === "prescription") {
+    const panel = get("#manual-rx");
+    panel.hidden = panel.disabled = value !== "manual";
+  }
   saveSession("foreyes-preview-draft", draft);
   get("[data-lens-label]").textContent = lenses[draft.lens].label;
   get("[data-lens-cost]").textContent = lenses[draft.lens].extra ? "+" + money(lenses[draft.lens].extra) : "Included";
@@ -363,6 +419,7 @@ document.addEventListener("click", event => {
 
   if (event.target.closest("[data-edit]")) {
     draft = null;
+    draftRx = {};
     saveSession("foreyes-preview-draft", draft);
     return;
   }
@@ -374,22 +431,29 @@ document.addEventListener("click", event => {
     if (!item) return;
     if (quantity === "more" && item.quantity < maxQuantity) item.quantity += 1;
     if (quantity === "less" && item.quantity > 1) item.quantity -= 1;
-    if (quantity === "remove") bag.splice(Number(index), 1);
+    if (quantity === "remove") {
+      bag.splice(Number(index), 1);
+      bagPrescriptions.delete(item.rxId);
+    }
     persistBag();
     renderRoute(false);
     const next = quantity === "remove" ? null : get(`[data-quantity="${quantity}"][data-index="${index}"]:not(:disabled)`);
     (next || get("#page-title")).focus({ preventScroll: true });
   }
 
-  if (event.target.closest("#place-order") && location.hash === "#checkout" && bag.length) {
+  if (event.target.closest("#place-order") && location.hash === "#checkout" && bag.length &&
+      bag.every(item => item.prescription !== "manual" || bagPrescriptions.has(item.rxId))) {
     lastOrder = {
       reference: "DEMO-" + crypto.getRandomValues(new Uint8Array(3)).reduce((hex, byte) => hex + byte.toString(16).padStart(2, "0"), "").toUpperCase(),
       total: subtotal(),
       count: bag.reduce((sum, item) => sum + item.quantity, 0),
       needsPrescription: bag.some(item => item.prescription === "later"),
+      enteredPrescription: bag.some(item => item.prescription === "manual"),
     };
     saveSession("foreyes-preview-order", lastOrder);
     bag = [];
+    bagPrescriptions.clear();
+    draftRx = {};
     persistBag();
     location.hash = "order";
   }

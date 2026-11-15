@@ -14,6 +14,7 @@ const lenses = {
   progressive: { label: "Progressive", extra: 110 },
 };
 const prescriptionChoices = {
+  manual: "Enter prescription manually",
   later: "Provide prescription later",
   sample: "Use a sample prescription",
 };
@@ -45,7 +46,10 @@ function restoreBag() {
       item && frames.some(frame => frame.id === item.frameId) &&
       Object.hasOwn(lenses, item.lens) && Object.hasOwn(prescriptionChoices, item.prescription) &&
       Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= maxQuantity
-    );
+    ).map(({ frameId, lens, prescription, quantity, rxId }) => ({
+      frameId, lens, prescription, quantity,
+      ...(prescription === "manual" ? { rxId: /^[0-9a-f-]{36}$/.test(rxId) ? rxId : crypto.randomUUID() } : {}),
+    }));
   } catch {
     return [];
   }
@@ -88,8 +92,7 @@ function renderFrames() {
   products.innerHTML = matches.map(frame => `
     <article class="card">
       <a class="card-trigger" href="#frame/${frame.id}" aria-label="View ${frame.name} in ${frame.color}">
-        <img src="assets/${frame.id}.jpg" width="512" height="512" alt="" loading="lazy">
-        <span class="card-arrow" aria-hidden="true">↗</span>
+        <img src="assets/${frame.id}.jpg" width="512" height="288" alt="" loading="lazy">
       </a>
       <div class="card-title"><h3>${frame.name}</h3><p>${money(frame.price)}</p></div>
       <p class="card-meta"><span class="swatch" style="--swatch:${frame.swatch}"></span>${frame.color} · ${frame.fit} fit</p>
