@@ -146,7 +146,7 @@ function builderPage(frame, step, editKey, original) {
         <form id="builder-form" data-step="${step}" autocomplete="off" novalidate>
           ${options}
           <p id="builder-error" role="alert" class="form-error" hidden></p>
-          <button class="button purchase-button" type="submit">${continueLabel} <span aria-hidden="true">→</span></button>
+          <button class="button purchase-button" type="submit" ${step === "review" && cartBlocked() ? "disabled" : ""}>${continueLabel} <span aria-hidden="true">→</span></button>
           <p class="mobile-subtotal">Subtotal <strong data-mobile-total>${cad(pricePerPair(draft) * (original?.quantity || 1))}</strong></p>
         </form>
       </section>
@@ -165,12 +165,12 @@ function orderLine(item, index, editable) {
       <p class="hint">${lenses[item.lens].label} · ${item.prescription === "manual" ? rx ? "Prescription entered" : "Prescription needs re-entry" : prescriptionChoices[item.prescription]}</p>
       ${editable ? `<div class="order-actions">
         <div class="quantity-picker" aria-label="Quantity">
-          <button type="button" data-quantity="less" data-index="${index}" aria-label="Decrease ${frame.name} quantity" ${item.quantity === 1 ? "disabled" : ""}>−</button>
+          <button type="button" data-quantity="less" data-index="${index}" aria-label="Decrease ${frame.name} quantity" ${item.quantity === 1 || cartBlocked() ? "disabled" : ""}>−</button>
           <span>${item.quantity}</span>
-          <button type="button" data-quantity="more" data-index="${index}" aria-label="Increase ${frame.name} quantity" ${item.quantity === maxQuantity ? "disabled" : ""}>+</button>
+          <button type="button" data-quantity="more" data-index="${index}" aria-label="Increase ${frame.name} quantity" ${item.quantity === maxQuantity || cartBlocked() ? "disabled" : ""}>+</button>
         </div>
         <a href="${stepLink(frame, item.prescription === "manual" && !rx ? "prescription" : "lenses", editKey)}" class="text-link" data-edit aria-label="Edit ${frame.name} configuration">${item.prescription === "manual" && !rx ? "Re-enter prescription" : "Edit"}</a>
-        <button type="button" class="text-link" data-quantity="remove" data-index="${index}" aria-label="Remove ${frame.name} from bag">Remove</button>
+        <button type="button" class="text-link" data-quantity="remove" data-index="${index}" aria-label="Remove ${frame.name} from bag" ${cartBlocked() ? "disabled" : ""}>Remove</button>
       </div>` : `<p class="hint">Quantity ${item.quantity}</p>
         ${rx ? `<details class="checkout-rx"><summary>Review entered prescription</summary>${prescriptionReadback(rx)}</details>` : ""}`}
     </div>
@@ -180,6 +180,9 @@ function orderLine(item, index, editable) {
 function bagPage(checkout) {
   const title = checkout ? "Review your order" : "Your bag";
   const previous = checkout ? backLink("#bag", "Back to bag") : backLink("#shop", "Keep shopping");
+  if (!bag.length && cartBlocked()) {
+    return `${previous}<h1 id="page-title" tabindex="-1">${title}</h1>`;
+  }
   if (!bag.length) {
     return `${backLink("#shop", "All frames")}<h1 id="page-title" tabindex="-1">Your bag is empty</h1>
       <p class="page-intro">Find a frame to start building your glasses.</p><a class="button purchase-button" href="#shop">Shop frames ↗</a>`;
@@ -188,7 +191,7 @@ function bagPage(checkout) {
   const count = bag.reduce((sum, item) => sum + item.quantity, 0);
   const status = checkout ? "Sample checkout · No charge" : count + (count === 1 ? " pair" : " pairs");
   const missingRx = bag.some(item => item.prescription === "manual" && !bagPrescriptions.has(item.rxId));
-  const actions = missingRx
+  const actions = cartBlocked() ? "" : missingRx
     ? `<p class="hint">Re-enter the prescription for any marked pair before checkout. This preview clears entered values when you reload.</p>${checkout ? '<a class="button purchase-button" href="#bag">Back to bag</a>' : ""}`
     : checkout
     ? `<button type="button" class="button purchase-button" id="place-order">Place sample order <span aria-hidden="true">→</span></button>`
@@ -271,6 +274,7 @@ function renderRoute(moveFocus = true) {
   if (route === "bag" || route === "checkout") content = bagPage(route === "checkout");
   if (route === "order") content = confirmationPage();
   if (route === "compare") content = comparisonPage();
+  if (route === "account") content = accountPage();
 
   if (screen === "build" && frame && steps.includes(step) && !rest.length) {
     const editKey = editLens && editRx ? [editLens, editRx, rxId].filter(Boolean).join("/") : "";
@@ -291,6 +295,7 @@ function renderRoute(moveFocus = true) {
   purchasePage.hidden = !content;
   purchasePage.innerHTML = content;
   if (get("#manual-rx")) fillPrescriptionForm(draftRx);
+  if (route === "account") renderAccountDetails();
   comparisonToolbar();
   const title = get("#page-title");
   document.title = title ? title.textContent + " — Foreyes" : "Foreyes — Prescription eyewear";
@@ -313,7 +318,9 @@ function editedPair() {
   return bag.find(item => itemKey(item) === draft.frameId + "/" + draft.editKey);
 }
 
-function addOrUpdatePair() {
+async function addOrUpdatePair() {
+  if (cartBlocked()) return;
+  const activeDraft = draft;
   const original = editedPair();
   const entry = { frameId: draft.frameId, lens: draft.lens, prescription: draft.prescription, quantity: original?.quantity || 1 };
   if (draft.prescription === "manual") {
@@ -341,11 +348,11 @@ function addOrUpdatePair() {
   } else {
     bag.push(entry);
   }
-  persistBag();
+  if (!await persistBag() || draft !== activeDraft) return;
   draft = null;
   draftRx = {};
   saveSession("foreyes-preview-draft", draft);
-  location.hash = "bag";
+  if (location.hash === stepLink(findFrame(activeDraft.frameId), "review", activeDraft.editKey)) location.hash = "bag";
 }
 
 purchasePage.addEventListener("submit", event => {
@@ -402,7 +409,7 @@ purchasePage.addEventListener("change", event => {
   get("[data-mobile-total]").textContent = total;
 });
 
-document.addEventListener("click", event => {
+document.addEventListener("click", async event => {
   const compare = event.target.closest("[data-compare]");
   if (compare) {
     const id = compare.dataset.compare;
@@ -426,6 +433,7 @@ document.addEventListener("click", event => {
 
   const control = event.target.closest("[data-quantity]");
   if (control) {
+    if (cartBlocked()) return;
     const { quantity, index } = control.dataset;
     const item = bag[index];
     if (!item) return;
@@ -441,21 +449,22 @@ document.addEventListener("click", event => {
     (next || get("#page-title")).focus({ preventScroll: true });
   }
 
-  if (event.target.closest("#place-order") && location.hash === "#checkout" && bag.length &&
+  if (event.target.closest("#place-order") && location.hash === "#checkout" && !cartBlocked() && bag.length &&
       bag.every(item => item.prescription !== "manual" || bagPrescriptions.has(item.rxId))) {
-    lastOrder = {
+    const order = {
       reference: "DEMO-" + crypto.getRandomValues(new Uint8Array(3)).reduce((hex, byte) => hex + byte.toString(16).padStart(2, "0"), "").toUpperCase(),
       total: subtotal(),
       count: bag.reduce((sum, item) => sum + item.quantity, 0),
       needsPrescription: bag.some(item => item.prescription === "later"),
       enteredPrescription: bag.some(item => item.prescription === "manual"),
     };
-    saveSession("foreyes-preview-order", lastOrder);
     bag = [];
+    if (!await persistBag()) return;
+    lastOrder = order;
+    saveSession("foreyes-preview-order", lastOrder);
     bagPrescriptions.clear();
     draftRx = {};
-    persistBag();
-    location.hash = "order";
+    if (location.hash === "#checkout") location.hash = "order";
   }
 });
 

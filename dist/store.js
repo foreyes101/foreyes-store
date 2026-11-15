@@ -36,32 +36,43 @@ const maxQuantity = 9;
 let selectedShape = "All";
 let query = "";
 const comparison = new Set();
-let bag = restoreBag();
+let guestBag = restoreBag();
+let bag = guestBag.map(item => ({ ...item }));
+
+function cleanCartLines(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter(item =>
+    item && frames.some(frame => frame.id === item.frameId) &&
+    Object.hasOwn(lenses, item.lens) && Object.hasOwn(prescriptionChoices, item.prescription) &&
+    Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= maxQuantity
+  ).map(({ frameId, lens, prescription, quantity, rxId }) => ({
+    frameId, lens, prescription, quantity,
+    ...(prescription === "manual" ? { rxId: /^[0-9a-f-]{36}$/.test(rxId) ? rxId : crypto.randomUUID() } : {}),
+  }));
+}
 
 function restoreBag() {
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    if (!Array.isArray(saved)) return [];
-    return saved.filter(item =>
-      item && frames.some(frame => frame.id === item.frameId) &&
-      Object.hasOwn(lenses, item.lens) && Object.hasOwn(prescriptionChoices, item.prescription) &&
-      Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= maxQuantity
-    ).map(({ frameId, lens, prescription, quantity, rxId }) => ({
-      frameId, lens, prescription, quantity,
-      ...(prescription === "manual" ? { rxId: /^[0-9a-f-]{36}$/.test(rxId) ? rxId : crypto.randomUUID() } : {}),
-    }));
+    return cleanCartLines(JSON.parse(localStorage.getItem(storageKey) || "[]"));
   } catch {
     return [];
   }
 }
 
-function persistBag() {
+function saveGuestBag(items) {
+  guestBag = cleanCartLines(items);
   try {
-    localStorage.setItem(storageKey, JSON.stringify(bag));
+    localStorage.setItem(storageKey, JSON.stringify(guestBag));
   } catch {
     // The bag still works in memory if this browser blocks local storage.
   }
+}
+
+function persistBag() {
+  if (accountUser) return saveAccountBag();
+  saveGuestBag(bag);
   updateBagCount();
+  return true;
 }
 
 function updateBagCount() {

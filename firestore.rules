@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /carts/{uid}/items/{itemId} {
+      function ownsCart() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      function validItem() {
+        let item = request.resource.data;
+        let baseId = item.frameId + '_' + item.lens + '_' + item.prescription;
+        return item.keys().hasAll(['frameId', 'lens', 'prescription', 'quantity'])
+          && item.keys().hasOnly(['frameId', 'lens', 'prescription', 'quantity', 'rxId'])
+          && item.frameId is string && item.frameId.matches('^[a-z0-9-]{1,40}$')
+          && item.lens in ['single', 'progressive']
+          && item.prescription in ['manual', 'later', 'sample']
+          && item.quantity is int && item.quantity >= 1 && item.quantity <= 9
+          && (item.prescription == 'manual'
+            ? ('rxId' in item && item.rxId is string && item.rxId.matches('^[0-9a-f-]{36}$')
+              && itemId == baseId + '_' + item.rxId)
+            : (!('rxId' in item) && itemId == baseId));
+      }
+
+      allow read, delete: if ownsCart();
+      allow create, update: if ownsCart() && validItem();
+    }
+  }
+}

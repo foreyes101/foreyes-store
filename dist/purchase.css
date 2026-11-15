@@ -61,6 +61,12 @@
 .review-options dt { font-weight: 700; }
 .review-options dd { margin: 0; }
 .form-error { margin-top: 12px; padding: 10px; background: #f8ded8; color: #7e281d; }
+.button:disabled { opacity: .55; cursor: default; }
+.account-panel { max-width: 460px; margin: 18px 0 0; padding: clamp(18px, 4vw, 32px); border: 1px solid var(--line); background: #efeee5; }
+.account-panel p + p { margin-top: 7px; }
+.account-panel #account-name { font-weight: 700; }
+.account-panel #account-email { overflow-wrap: anywhere; }
+.account-panel .text-link { display: block; margin-top: 14px; }
 .mobile-subtotal { display: none; }
 
 #builder-form .rx-panel { margin-top: 16px; padding: 14px; background: #efeee5; border: 1px solid var(--line); }

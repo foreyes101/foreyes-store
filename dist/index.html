@@ -13,6 +13,8 @@
   <link rel="stylesheet" href="purchase.css">
   <script src="store.js" defer></script>
   <script src="prescription.js" defer></script>
+  <script src="firebase-config.js" defer></script>
+  <script src="account.js" defer></script>
   <script src="purchase.js" defer></script>
 </head>
 <body>
@@ -25,6 +27,7 @@
         <button class="icon-button" type="button" id="search-toggle" aria-label="Search frames" aria-expanded="false" aria-controls="search-panel">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.3"/><path d="m15.2 15.2 4.4 4.4"/></svg>
         </button>
+        <a class="account-link" href="#account">Account</a>
         <a class="bag-button" href="#bag" id="open-bag" aria-label="Open shopping bag, 0 items">Bag <span id="bag-count">0</span></a>
       </div>
     </nav>
@@ -34,6 +37,7 @@
       <button type="submit" class="button">Search</button>
     </form>
   </header>
+  <p class="cart-notice" id="cart-notice" role="status" hidden></p>
   <main id="storefront">
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy">
